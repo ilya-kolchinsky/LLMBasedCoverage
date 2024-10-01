@@ -21,6 +21,11 @@ class CodeRetriever(object):
         """Extract the source code of the node from the file's lines."""
         return ''.join(lines[node.lineno - 1:node.end_lineno])
 
+    @staticmethod
+    def __extract_decorator(decorator, lines):
+        """Extract the source code for a decorator."""
+        return ''.join(lines[decorator.lineno - 1: decorator.end_lineno])
+
     def __retrieve_code(self, function_name, class_name, module_name, root_dir):
         # Find the module path
         module_path = self.__find_module_path(root_dir, module_name)
@@ -41,10 +46,18 @@ class CodeRetriever(object):
                 # If class is specified, find the function within the class
                 for class_node in node.body:
                     if isinstance(class_node, ast.FunctionDef) and class_node.name == function_name:
-                        return self.__extract_source_code(class_node, source_lines)
+                        # Extract decorators
+                        decorators = ''.join(self.__extract_decorator(d, source_lines) for d in class_node.decorator_list)
+                        # Extract function code
+                        function_code = self.__extract_source_code(class_node, source_lines)
+                        return decorators + function_code
             elif isinstance(node, ast.FunctionDef) and class_name is None and node.name == function_name:
                 # If no class is specified, find the standalone function
-                return self.__extract_source_code(node, source_lines)
+                # Extract decorators
+                decorators = ''.join(self.__extract_decorator(d, source_lines) for d in node.decorator_list)
+                # Extract function code
+                function_code = self.__extract_source_code(node, source_lines)
+                return decorators + function_code
 
         raise ValueError(f"Function or method '{function_name}' not found in module '{module_name}'.")
 
@@ -63,6 +76,6 @@ class CodeRetriever(object):
 if __name__ == "__main__":
     code_retriever = CodeRetriever(r"C:\Users\ilyak\PycharmProjects\ansible\lib",
                                    r"C:\Users\ilyak\PycharmProjects\ansible\test\units")
-    test_afunc = AFunc(node_name="test_action::TestActionBase.test_action_base__execute_remote_stat")
+    test_afunc = AFunc(node_name="test_manager::test_256color_support")
     code = code_retriever.retrieve(test_afunc)
     print(code)
