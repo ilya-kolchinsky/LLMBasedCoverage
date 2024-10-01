@@ -61,6 +61,9 @@ class PathLogicNode:
 
 
 class PathEvaluator(object):
+
+    MAJORITY_VOTE_NUM = 3
+
     def __init__(self, llm, prompt_generator):
         self.__llm = llm
         self.__prompt_generator = prompt_generator
@@ -87,16 +90,28 @@ class PathEvaluator(object):
 
         return graph_builder.compile()
 
+    def __run_single_state_graph(self, path):
+        state_graph = self.__create_state_graph(path)
+        initial_state = {"messages": [], "result_flag": False, "stop_flag": False}
+        result = state_graph.invoke(initial_state)
+        return result["result_flag"]
+
     def __evaluate_next_path(self):
         current_path = self.__paths.pop(0)
         current_test = current_path[0]
         if current_test in self.__tests_to_run:
             # already added - no need to evaluate this path
             return
-        state_graph = self.__create_state_graph(current_path)
-        initial_state = {"messages": [], "result_flag": False, "stop_flag": False}
-        result = state_graph.invoke(initial_state)
-        if result["result_flag"]:
+
+        positive_replies_num = 0
+        negative_replies_num = 0
+        for _ in range(self.MAJORITY_VOTE_NUM):
+            current_result = self.__run_single_state_graph(current_path)
+            if current_result:
+                positive_replies_num += 1
+            else:
+                negative_replies_num += 1
+        if positive_replies_num > negative_replies_num:
             self.__tests_to_run.append(current_test)
 
     def evaluate_paths(self, afunc, paths):

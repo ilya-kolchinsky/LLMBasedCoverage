@@ -21,6 +21,7 @@ class GraphExecutionParams(BaseModel):
     module_name: str
     dot_file_path: str
 
+
 @chain
 def execute_graph(params: GraphExecutionParams):
     try:
@@ -31,9 +32,10 @@ def execute_graph(params: GraphExecutionParams):
         prompt_generator = PromptGenerator(CodeRetriever(root_code_dir=params["root_code_dir"], root_test_dir=params["root_test_dir"]))
         tests_to_run = PathEvaluator(llm, prompt_generator).evaluate_paths(target_function, paths)
 
-        return "\n".join([str(t) for t in tests_to_run])
+        return "\n".join([str(t) for t in tests_to_run]) if len(tests_to_run) > 0 else "No tests reach the given function."
     except Exception as e:
         return f"Graph execution failed: {str(e)}"
+
 
 def main():
     app = FastAPI(title="LangChain Server", version="1.0", description="A simple API server demonstrating LLM-based coverage")

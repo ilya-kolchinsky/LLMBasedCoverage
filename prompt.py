@@ -4,21 +4,35 @@ class PromptGenerator(object):
 
     def create_prompt(self, path, current_step):
         origin_function = path[0]
+        origin_class_and_method_name = origin_function.function_name \
+            if origin_function.class_name is None \
+            else f"{origin_function.class_name}.{origin_function.function_name}"
+        origin_method_or_function = "function" if origin_function.class_name is None else "method"
+
         source_function = path[current_step]
+        source_class_and_method_name = source_function.function_name \
+            if source_function.class_name is None \
+            else f"{source_function.class_name}.{source_function.function_name}"
+        source_method_or_function = "function" if source_function.class_name is None else "method"
+
         destination_function = path[current_step+1]
+        destination_class_and_method_name = destination_function.function_name \
+            if destination_function.class_name is None \
+            else f"{destination_function.class_name}.{destination_function.function_name}"
+        destination_method_or_function = "function" if source_function.class_name is None else "method"
 
         if current_step == 0:  # i.e., origin_function == source_function
             origin_function_code = self.__code_retriever.retrieve(origin_function)
-            return f"Below is the source code of the function {origin_function.function_name}. " \
-                   f"Does {origin_function.function_name} invoke {destination_function.function_name} when executed? " \
+            return f"Below is the source code of the {origin_method_or_function} '{origin_class_and_method_name}'. " \
+                   f"Does '{origin_class_and_method_name}' invoke '{destination_class_and_method_name}' when executed? " \
                    f"Only answer 'yes' or 'no'." \
                    f"\n\n" \
                    f"{origin_function_code}"
 
         # source_function is a hop in between origin and destination
         source_function_code = self.__code_retriever.retrieve(source_function)
-        return f"Additionally, here is the source code of the function {source_function.function_name}. " \
-               f"Does {source_function.function_name} invoke {destination_function.function_name} when called from {origin_function.function_name} as determined above? " \
+        return f"Following the above, below is the source code of the {source_method_or_function} '{source_class_and_method_name}'. " \
+               f"Does '{source_class_and_method_name}' invoke '{destination_class_and_method_name}' when called from '{origin_class_and_method_name}'? " \
                f"Only answer 'yes' or 'no'." \
                f"\n\n" \
                f"{source_function_code}"
@@ -36,4 +50,5 @@ class PromptGenerator(object):
             return 'y'
         if 'no' in reply.content.lower():
             return 'n'
-        return None
+        # failed to parse the response - let's be safe and assume a positive reply
+        return 'y'
