@@ -1,7 +1,7 @@
 import random
 
 from langchain_openai import ChatOpenAI
-from langchain_ollama import OllamaLLM
+from langchain_ollama import ChatOllama
 
 
 class DummyLLM(object):
@@ -25,4 +25,4 @@ class DummyLLM(object):
 def init_coverage_llm():
     # return DummyLLM()
     # return ChatOpenAI()
-    return OllamaLLM(model="qwen2.5-coder")
+    return ChatOllama(model="qwen2.5-coder")

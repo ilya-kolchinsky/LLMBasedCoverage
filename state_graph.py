@@ -1,5 +1,10 @@
-from typing import Annotated
+import json
+from types import NoneType
+from typing import Annotated, Union
 
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from langgraph.graph import StateGraph, START
@@ -10,6 +15,14 @@ from call_graph import Code2FlowCallGraphCreator
 from code_retriever import CodeRetriever
 from llm import init_coverage_llm
 from prompt import PromptGenerator
+
+ENABLE_CODE_EXTRACT_TOOL = True
+
+
+class ExtractCodeArgsSchema(BaseModel):
+    module_name: Union[str, NoneType] = Field(description="The module containing the code to be extracted or None if unknown.")
+    class_name: Union[str, NoneType] = Field(description="The class containing the method to be extracted or None if unknown or if the code to be extracted is a function.")
+    method_or_function_name: str = Field(description="The name of the method (if class_name is given) or the function (if class_name is not given) to be extracted.")
 
 
 class State(TypedDict):
@@ -60,6 +73,30 @@ class PathLogicNode:
         return {"messages": [("user", output)], "result_flag": False, "stop_flag": False}
 
 
+class ToolNode:
+    def __init__(self, tools: list) -> None:
+        self.tools_by_name = {tool.name: tool for tool in tools}
+
+    def __call__(self, inputs: dict):
+        if messages := inputs.get("messages", []):
+            message = messages[-1]
+        else:
+            raise ValueError("No message found in input")
+        outputs = []
+        for tool_call in message.tool_calls:
+            tool_result = self.tools_by_name[tool_call["name"]].invoke(
+                tool_call["args"]
+            )
+            outputs.append(
+                ToolMessage(
+                    content=json.dumps(tool_result),
+                    name=tool_call["name"],
+                    tool_call_id=tool_call["id"],
+                )
+            )
+        return {"messages": outputs}
+
+
 class PathEvaluator(object):
 
     MAJORITY_VOTE_NUM = 3
@@ -67,6 +104,11 @@ class PathEvaluator(object):
     def __init__(self, llm, prompt_generator):
         self.__llm = llm
         self.__prompt_generator = prompt_generator
+
+        self.__tools = self._create_tools()
+        if ENABLE_CODE_EXTRACT_TOOL:
+            self.__prompt_generator.tool_use_enabled = True
+            self.__llm = llm.bind_tools(self.__tools)
 
         self.__afunc = None
         self.__paths = []
@@ -77,9 +119,9 @@ class PathEvaluator(object):
 
         graph_builder.add_node("chatbot", ChatbotNode(self.__llm))
         graph_builder.add_node("path_logic", PathLogicNode(self.__afunc, path, self.__prompt_generator))
+        graph_builder.add_node("tools", ToolNode(tools=self.__tools))
 
         graph_builder.add_edge(START, "path_logic")
-        graph_builder.add_edge("chatbot", "path_logic")
 
         # This conditional edge routes to the chatbot if more paths/functions can be explored. Otherwise, it routes to the end.
         graph_builder.add_conditional_edges(
@@ -88,7 +130,60 @@ class PathEvaluator(object):
             {"chatbot": "chatbot", "__end__": "__end__"},
         )
 
+        # This conditional edge routes to the tool node if a tool node was requested and to the main logic node otherwise.
+        graph_builder.add_conditional_edges(
+            "chatbot", self.route_tools,
+            {"path_logic": "path_logic", "tools": "tools"},
+        )
+
+        graph_builder.add_edge("tools", "chatbot")
+
         return graph_builder.compile()
+
+    @staticmethod
+    def route_tools(state: State):
+        """
+        Use in the conditional_edge to route to the ToolNode if the last message has tool calls.
+        Otherwise, route to the path logic node.
+        """
+        if not ENABLE_CODE_EXTRACT_TOOL:
+            # tool functionality is disabled
+            return "path_logic"
+        if isinstance(state, list):
+            ai_message = state[-1]
+        elif messages := state.get("messages", []):
+            ai_message = messages[-1]
+        else:
+            raise ValueError(f"No messages found in input state to tool_edge: {state}")
+        if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
+            return "tools"
+        return "path_logic"
+
+    def _create_tools(self):
+        input_format = {
+            "module_name": {
+                "type": "string",
+                "description": "The module containing the code to be extracted or None if unknown.",
+            },
+            "class_name": {
+                "type": "string",
+                "description": "The class containing the method to be extracted or None if unknown or if the code to be extracted is a function.",
+            },
+            "method_or_function_name": {
+                "type": "string",
+                "description": "The name of the method (if class_name is given) or the function (if class_name is not given) to be extracted.",
+            }
+        }
+        output_format = {
+            "code": "string",
+        }
+        code_extract_tool = StructuredTool(name="extract_code",
+                                           func=self.__prompt_generator.code_retriever.generate_code_extract_func(),
+                                           description="The tool for extracting the source code of the given function or method.",
+                                           args_schema=ExtractCodeArgsSchema,
+                                           input_format=input_format,
+                                           output_format=output_format)
+        return [code_extract_tool]
 
     def __run_single_state_graph(self, path):
         state_graph = self.__create_state_graph(path)

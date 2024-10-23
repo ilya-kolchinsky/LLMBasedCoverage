@@ -1,6 +1,7 @@
 class PromptGenerator(object):
-    def __init__(self, code_retriever):
-        self.__code_retriever = code_retriever
+    def __init__(self, code_retriever, tool_use_enabled=False):
+        self.code_retriever = code_retriever
+        self.tool_use_enabled = tool_use_enabled
 
     def create_prompt(self, path, current_step):
         origin_function = path[0]
@@ -22,20 +23,30 @@ class PromptGenerator(object):
         destination_method_or_function = "function" if source_function.class_name is None else "method"
 
         if current_step == 0:  # i.e., origin_function == source_function
-            origin_function_code = self.__code_retriever.retrieve(origin_function)
-            return f"Below is the source code of the {origin_method_or_function} '{origin_class_and_method_name}'. " \
-                   f"Does '{origin_class_and_method_name}' invoke '{destination_class_and_method_name}' when executed? " \
-                   f"Only answer 'yes' or 'no'." \
-                   f"\n\n" \
-                   f"{origin_function_code}"
+            origin_function_code = self.code_retriever.retrieve(origin_function)
+            prompt = f"Below is the source code of the {origin_method_or_function} '{origin_class_and_method_name}'. " \
+                     f"Does '{origin_class_and_method_name}' invoke '{destination_class_and_method_name}' when executed? " \
+                     f"Only answer 'yes' or 'no'." \
+                     f"\n\n" \
+                     f"{origin_function_code}"
 
-        # source_function is a hop in between origin and destination
-        source_function_code = self.__code_retriever.retrieve(source_function)
-        return f"Following the above, below is the source code of the {source_method_or_function} '{source_class_and_method_name}'. " \
-               f"Does '{source_class_and_method_name}' invoke '{destination_class_and_method_name}' when called from '{origin_class_and_method_name}'? " \
-               f"Only answer 'yes' or 'no'." \
-               f"\n\n" \
-               f"{source_function_code}"
+        else:  # source_function is a hop in between origin and destination
+            source_function_code = self.code_retriever.retrieve(source_function)
+            prompt = f"Following the above, below is the source code of the {source_method_or_function} '{source_class_and_method_name}'. " \
+                     f"Does '{source_class_and_method_name}' invoke '{destination_class_and_method_name}' when called from '{origin_class_and_method_name}'? " \
+                     f"Only answer 'yes' or 'no'." \
+                     f"\n\n" \
+                     f"{source_function_code}"
+
+        if self.tool_use_enabled:
+            prompt += ("\n\nYou have access to a tool called extract_code which gives you the source code of a given function or method. "
+                       "The tool accepts the following parameters: "
+                       "1) module_name - the module containing the code to be extracted or None if unknown."
+                       "2) class_name - the class containing the method to be extracted or None if unknown or if the code to be extracted is a function."
+                       "3) method_or_function_name - the name of the method (if class_name is given) or the function (if class_name is not given) to be extracted."
+                       "Use this tool if needed.")
+
+        return prompt
 
     def create_initial_prompt(self, path, current_step):
         # temporary implementation

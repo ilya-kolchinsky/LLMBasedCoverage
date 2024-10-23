@@ -72,6 +72,13 @@ class CodeRetriever(object):
             return self.retrieve_test(afunc)
         return self.retrieve_source(afunc)
 
+    def generate_code_extract_func(self):
+        def code_extract_func(module_name, class_name, method_or_function_name):
+            # TODO: a lot more logic is required here to make this function useful
+            return self.__retrieve_code(method_or_function_name, class_name, module_name, self.__root_code_dir)
+
+        return code_extract_func
+
 
 if __name__ == "__main__":
     code_retriever = CodeRetriever(r"C:\Users\ilyak\PycharmProjects\ansible\lib",
